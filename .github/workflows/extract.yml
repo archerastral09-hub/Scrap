@@ -1,0 +1,44 @@
+name: extract-leboncoin
+on: workflow_dispatch
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install gdown beautifulsoup4
+      - name: Un zip à la fois (télécharge, dézippe, extrait, supprime)
+        run: |
+          mkdir -p out
+          i=0
+          while read -r url; do
+            [ -z "$url" ] && continue
+            i=$((i+1))
+            echo "=== zip $i ==="
+            id=$(echo "$url" | sed -E 's#.*/d/([^/]+).*#\1#')
+            gdown "$id" -O z.zip || { echo "ECHEC download $i"; continue; }
+            mkdir d && unzip -q -o z.zip -d d
+            rm z.zip
+            python extract.py d out/$i.csv
+            rm -rf d
+            df -h / | tail -1
+          done < links.txt
+      - name: Fusion
+        run: |
+          python - <<'P'
+          import csv,glob
+          rows=[]
+          for f in sorted(glob.glob('out/*.csv')):
+              r=list(csv.reader(open(f,encoding='utf-8-sig')))
+              for x in r[1:]:
+                  rows.append(x)
+          w=csv.writer(open('agences_leboncoin.csv','w',newline='',encoding='utf-8-sig'))
+          w.writerow(['siren','nom','adresse','fichier']); w.writerows(rows)
+          print(len(rows),'fiches')
+          P
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agences_leboncoin
+          path: |
+            agences_leboncoin.csv
+            out/
